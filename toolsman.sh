@@ -78,26 +78,48 @@ function __extract_update_file() {
 
 function __execute_command() {
 	#https://stackoverflow.com/questions/11027679/capture-stdout-and-stderr-into-different-variables
-	unset t_std t_err t_ret;
-	local t_std t_err t_ret;
-	eval "$( eval "${@}" 2> >(t_err=$(cat); typeset -p t_err) > >(t_std=$(cat); typeset -p t_std); t_ret=$?; typeset -p t_ret )";
-	printf "${t_std}";
-	return $t_ret;
+	which $(echo "${@}" | cut -d " " -f1) &> /dev/null;
+	if [[ "$?" -ne 0 ]];
+	then	
+		return 1;
+	else
+		unset t_std t_err t_ret;
+		local t_std t_err t_ret;
+		eval "$( eval "${@}" 2> >(t_err=$(cat); typeset -p t_err) > >(t_std=$(cat); typeset -p t_std); t_ret=$?; typeset -p t_ret )";
+		printf "${t_std}";
+		return $t_ret;
+	fi;
 }
 
 function __split_repo_line() {
 	IFS=';' read -r -a strarr <<<"${@}";
 }
 
+function __check_command_existence() {
+	which $(echo "${@}" | cut -d " " -f1) &> /dev/null;
+	if [[ "$?" -ne 0 ]];
+	then	
+		return 1;
+	else
+		return 0;
+	fi;
+}
+
 function main() {
 	readarray -t lines < "${@}";
 	local line;
 	for line in "${lines[@]}";
-	do
+	do		
 		__split_repo_line "${line}";
 
-		__display_app_name_banner "${strarr[0]}";
+		__display_app_name_banner "${strarr[0]#"#"}";
 
+		if [[ ${line:0:1} = \# ]];
+		then
+			__display_last_message "⚠️  \"${strarr[0]#"#"}\" is not to be updated as it is commented.";
+			continue;
+		fi;
+		
 		if [ ! -d "${strarr[2]}" ] || [ ! "$(ls -A "${strarr[2]}")" ];
 		then
 			__display_last_message "⛔ Directory \"${strarr[2]}\" does not exists or it is empty. ";
@@ -105,17 +127,24 @@ function main() {
 		fi;
 
 		InstalledVersion=$(__execute_command "${strarr[1]}");
-		if [[ "$?" -ne 0 ]];
+		if [[ "$?" -ne 0 || "$(echo ${InstalledVersion} | grep [0-9] -q && echo $?)" != "0" ]];
 		then
 			__display_last_message "⛔ Error getting installed version of ${strarr[0]}. ";
 			continue;
 		fi;
-
-		AvailableVersion=$(__execute_command "${strarr[3]}");
-		if [[ "$?" -ne 0 ]];
+		
+		if [ -z "${strarr[4]}" ];
 		then
-			__display_last_message "⛔ Error getting available version of ${strarr[0]} and it's ${InstalledVersion} version is installed. ";
+			SelfUpdateOutput=$(__execute_command "${strarr[3]}");
+			__display_last_message "✅ Self updated and the ouput is \"${InstalledVersion}\". ";
 			continue;
+		else
+			AvailableVersion=$(__execute_command "${strarr[3]}");
+			if [[ "$?" -ne 0 ]];
+			then
+				__display_last_message "⛔ Error getting available version of ${strarr[0]} and it's ${InstalledVersion} version is installed. ";
+				continue;
+			fi;
 		fi;
 
 		SourceFileUrl=$(__execute_command "echo ${strarr[4]} | sed \"s|\${AvailableVersion}|\${AvailableVersion}|Ig;s|\${OS}|\${OS}|Ig;s|\${ARCH}|\${ARCH}|Ig\"");
@@ -140,7 +169,7 @@ function main() {
 
 			if [[ "$(__execute_command ${strarr[1]})" != "${AvailableVersion}" ]];
 			then
-				__display_last_message "⛔ Update done. However, there is mismatch in versions. ";
+				__display_last_message "⚠️  Update done. However, there is mismatch in versions.";
 				continue;
 			fi;
 			__display_last_message "💯 Updated. ";
