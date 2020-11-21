@@ -105,6 +105,44 @@ function __read_repo_file() {
 	readarray -t REPO_LINES < "${@}";
 }
 
+function __download_file() {
+	local DOWNLOAD_FILE_URL=${2};
+	local DESTINATION_FILE_PATH=${1};
+	__execute_command "curl -sfIo /dev/null ${DOWNLOAD_FILE_URL}";
+	if [[ "$?" -ne 0 ]];
+	then
+		return 1;
+	fi;	
+	if [[ ! -f "${DESTINATION_FILE_PATH}" ]];
+	then
+		printf "⏬ Starting to download the new version now and then update it.\n";
+		__execute_command "curl -sLo ${DESTINATION_FILE_PATH} ${DOWNLOAD_FILE_URL}";		
+	fi;
+	if [[ -f "${DESTINATION_FILE_PATH}" ]];
+	then
+		true;
+	else
+		false;
+	fi;
+}
+
+function __verify_downloaded_file() {
+	local FILE_TO_VERIFY=${1};
+	local COMMAND_TO_VERIFY=${2};
+	if [ ! -z "${COMMAND_TO_VERIFY}" ];
+	then
+		eval ${COMMAND_TO_VERIFY};
+		if [[ "$?" -eq 0 ]];
+		then
+			printf "✅ Downloaded file verified successfully.\n";
+			return 0;
+		else
+			rm -f "${FILE_TO_VERIFY}";
+			return 1;
+		fi;
+	fi;
+}
+
 function main() {
 	local REPO_LINE;
 	for REPO_LINE in "${REPO_LINES[@]}";
@@ -154,17 +192,17 @@ function main() {
 			SELF_UPDATE_OUTPUT=$(__execute_command "${AVAILABLE_VERSION_COMMAND}");
 			__display_last_message "✅ Self updated and the ouput is \"${SELF_UPDATE_OUTPUT}\". ";
 			continue;
-		else
-			local AVAILABLE_VERSION=$(__execute_command "$(echo ${AVAILABLE_VERSION_COMMAND} | sed "s|\${MajorVersionBit}|${INSTALLED_VERSION_MAJOR_BIT}|Ig")");
-			if [[ "$?" -ne 0 ]];
-			then
-				__display_last_message "⛔ Error getting available version of ${APP_NAME} and ${INSTALLED_VERSION} version is installed. ";
-				continue;
-			fi;
 		fi;
+	
+		local AVAILABLE_VERSION=$(__execute_command "$(echo ${AVAILABLE_VERSION_COMMAND} | sed "s|\${MajorVersionBit}|${INSTALLED_VERSION_MAJOR_BIT}|Ig")");
+		if [[ "$?" -ne 0 ]];
+		then
+			__display_last_message "⛔ Error getting available version of ${APP_NAME} and ${INSTALLED_VERSION} version is installed. ";
+			continue;
+		fi;		
 
 		#Hack for Chrome/Edge where available version is followed by a dash and number. This version number is necessary in the download file URL only.
-		DOWNLOAD_FILE_URL_AFTER_REPLACEMENTS=$(echo "${DOWNLOAD_FILE_URL}" | sed "s|\${MajorVersionBit}|${INSTALLED_VERSION_MAJOR_BIT}|Ig;s|\${AvailableVersion}|${AVAILABLE_VERSION}|Ig;s|\${OperatingSystem}|${OS}|Ig;s|\${ProcessorArchitecture}|${ARCH}|Ig");
+		DOWNLOAD_FILE_URL=$(echo "${DOWNLOAD_FILE_URL}" | sed "s|\${MajorVersionBit}|${INSTALLED_VERSION_MAJOR_BIT}|Ig;s|\${AvailableVersion}|${AVAILABLE_VERSION}|Ig;s|\${OperatingSystem}|${OS}|Ig;s|\${ProcessorArchitecture}|${ARCH}|Ig");
 		VERIFY_DOWNLOADED_FILE_COMMAND=$(echo "${VERIFY_DOWNLOADED_FILE_COMMAND}" | sed "s|\${MajorVersionBit}|${INSTALLED_VERSION_MAJOR_BIT}|Ig;s|\${DestinationDir}|${DESTINATION_DIRECTORY}|Ig;s|\${AvailableVersion}|${AVAILABLE_VERSION}|Ig;s|\${OperatingSystem}|${OS}|Ig;s|\${ProcessorArchitecture}|${ARCH}|Ig");
 		local DESTINATION_FILE=$(basename ${DOWNLOAD_FILE_URL} | sed "s|\${AvailableVersion}|${AVAILABLE_VERSION}|Ig;s|\${OperatingSystem}|${OS}|Ig;s|\${ProcessorArchitecture}|${ARCH}|Ig");		
 		#Removing dash and number from available version as it is no more necessary.
@@ -173,35 +211,25 @@ function main() {
 		if [[ "${INSTALLED_VERSION}" == "${AVAILABLE_VERSION}" ]];
 		then
 			__display_last_message "✅ No updates available. 🏁 Version ${INSTALLED_VERSION} is already up-to-date.  ";
-		else
-			printf "📌 Installed version: ${INSTALLED_VERSION}\n☁️  Available version: ${AVAILABLE_VERSION}\n";
-	
-			__execute_command "curl -sfIo ${DESTINATION_DIRECTORY}/${DESTINATION_FILE} ${DOWNLOAD_FILE_URL_AFTER_REPLACEMENTS}";
-			if [[ "$?" -ne 0 ]];
-			then
-				__display_last_message "⛔ Update $(basename ${DOWNLOAD_FILE_URL_AFTER_REPLACEMENTS}) does not exists at $([[ ${DOWNLOAD_FILE_URL_AFTER_REPLACEMENTS} =~ [a-z]{1,}?://[^/]+ ]] && echo ${BASH_REMATCH[0]}) location. ";
-				continue;
-			fi;
-			
-			printf "⏬ Starting to download the new version now and then update it.\n";
+			continue;
+		fi;
 
-			__execute_command "curl -sLo ${DESTINATION_DIRECTORY}/${DESTINATION_FILE} ${DOWNLOAD_FILE_URL_AFTER_REPLACEMENTS}";
+		if [[ "${INSTALLED_VERSION}" != "${AVAILABLE_VERSION}" ]];
+		then
+			printf "📌 Installed version: ${INSTALLED_VERSION}\n☁️  Available version: ${AVAILABLE_VERSION}\n";
+
+			__download_file "${DESTINATION_DIRECTORY}/${DESTINATION_FILE}" "${DOWNLOAD_FILE_URL}";
 			if [[ "$?" -ne 0 ]];
 			then
 				__display_last_message "⛔ Couldn't download ${APP_NAME} update of ${AVAILABLE_VERSION} version. ";
 				continue;
 			fi;
-
-			if [ ! -z "${VERIFY_DOWNLOADED_FILE_COMMAND}" ];
+			
+			__verify_downloaded_file "${DESTINATION_DIRECTORY}/${DESTINATION_FILE}" "${VERIFY_DOWNLOADED_FILE_COMMAND}";
+			if [[ "$?" -ne 0 ]];
 			then
-				eval ${VERIFY_DOWNLOADED_FILE_COMMAND};
-				if [[ "$?" -eq 0 ]];
-				then
-					printf "✅ Downloaded file verified successfully.\n";
-				else
-					__display_last_message "⚠️  Downloaded file verification failed.";
-					continue;
-				fi;
+				__display_last_message "⚠️  Downloaded file verification failed.";
+				continue;
 			fi;
 
 			__extract_update_file "${DESTINATION_DIRECTORY}/${DESTINATION_FILE}" "${AVAILABLE_VERSION}";
@@ -210,10 +238,9 @@ function main() {
 				__display_last_message "⚠️  Update done. However, there is mismatch in versions.";
 				continue;
 			fi;			
-			
+
 			__display_last_message "💯 Updated. ";
 		fi;
-		continue;
 	done;
 }
 
