@@ -25,63 +25,6 @@ function __get_environment_info() {
 	OS=$(echo `uname` | tr '[:upper:]' '[:lower:]');
 }
 
-function __unzip_and_strip() {
-	local ARCHIVE=${1};
-	local DESTINATION_DIR=${2:-};
-	local TEMP_DIR=$(mktemp -d);
-	unzip -qq ${ARCHIVE} -d ${TEMP_DIR};
-	local SOURCE_DIR=$(dirname $(find ${TEMP_DIR} -type f -print -quit));
-	cp -rpf ${SOURCE_DIR}/* ${DESTINATION_DIR}/.;
-	rm -rf ${TEMP_DIR};
-}
-
-function __extract_deb_file() {
-	local ARCHIVE=${1};
-	local DESTINATION_DIR=${2:-};
-	local TEMP_DIR=$(mktemp -d);
-	ar x ${ARCHIVE} data.tar.xz --output="${TEMP_DIR}";
-	tar -xf ${TEMP_DIR}/data.tar.xz -C "${TEMP_DIR}";
-	rm -f ${TEMP_DIR}/data.tar.xz;
-	local SOURCE_DIR=$(find ${TEMP_DIR} -type d -name $(basename "${DESTINATION_DIR}") | grep "${DESTINATION_DIR}");
-	cp -rpf "${SOURCE_DIR}"/* "${DESTINATION_DIR}"/.;
-	rm -rf "${TEMP_DIR}" "${ARCHIVE}";
-}
-
-function __extract_update_file() {
-	local DESTINATION_DIR=$(dirname ${1});
-	local DESTINATION_FILE=$(basename ${1});
-	local DESTINATION_FILE_EXT="${DESTINATION_FILE##*.}";
-	local AVAILABLE_VERSION=${2};
-	if [[ ! -f "${DESTINATION_DIR}/${DESTINATION_FILE}" ]];
-	then
-		false;
-	else
-		case "$DESTINATION_FILE_EXT" in
-		gz | tgz | xz )
-			tar xf "${DESTINATION_DIR}/${DESTINATION_FILE}" --directory "${DESTINATION_DIR}"/ --strip-components=$(tar tf "${DESTINATION_DIR}/${DESTINATION_FILE}" | grep "\/$" | sort | head -n1 | grep -o "\/" | wc -l) && rm -f "${DESTINATION_DIR}/${DESTINATION_FILE}";
-			;;
-		zip)
-			__unzip_and_strip "${DESTINATION_DIR}/${DESTINATION_FILE}" "${DESTINATION_DIR}"/ && rm -f "${DESTINATION_DIR}/${DESTINATION_FILE}";
-			;;
-		deb)
-			__extract_deb_file "${DESTINATION_DIR}/${DESTINATION_FILE}" "${DESTINATION_DIR}";
-			;;
-		*)
-			local EXISTING_DESTINATION_FILE=$(echo ${DESTINATION_FILE} | sed "s|[[:print:]]${OS}||Ig;s|[[:print:]]${ARCH}||Ig;s|[[:print:]]${AVAILABLE_VERSION}||Ig");
-			if [[ "${DESTINATION_FILE}" =~ "${ARCH}"  || "${DESTINATION_FILE}" =~ "${AVAILABLE_VERSION}" || "${DESTINATION_FILE}" =~ "${OS}" ]];
-			then
-				rm -f ${DESTINATION_DIR}/${EXISTING_DESTINATION_FILE};
-				mv ${DESTINATION_DIR}/${DESTINATION_FILE} ${DESTINATION_DIR}/${EXISTING_DESTINATION_FILE};
-				chmod u+x ${DESTINATION_DIR}/${EXISTING_DESTINATION_FILE};
-			else
-				chmod u+x ${DESTINATION_DIR}/${DESTINATION_FILE};
-			fi
-			;;
-		esac;
-		true;
-	fi;
-}
-
 function __execute_command() {
 	#https://stackoverflow.com/questions/11027679/capture-stdout-and-stderr-into-different-variables
 	which $(echo "${@}" | cut -d " " -f1) &> /dev/null;
@@ -97,28 +40,17 @@ function __execute_command() {
 	fi;
 }
 
-function __split_repo_line() {
-	IFS=';' read -r -a REPO_LINE_ARRAY <<< "${@}";
-}
-
-function __read_repo_file() {
-	readarray -t REPO_LINES < "${@}";
-}
-
 function __download_file() {
+	local DESTINATION_FILE=${1};
 	local DOWNLOAD_FILE_URL=${2};
-	local DESTINATION_FILE_PATH=${1};
 	__execute_command "curl -sfIo /dev/null ${DOWNLOAD_FILE_URL}";
 	if [[ "$?" -ne 0 ]];
 	then
 		return 1;
-	fi;	
-	if [[ ! -f "${DESTINATION_FILE_PATH}" ]];
-	then
-		printf "⏬ Starting to download the new version now and then update it.\n";
-		__execute_command "curl -sLo ${DESTINATION_FILE_PATH} ${DOWNLOAD_FILE_URL}";		
 	fi;
-	if [[ -f "${DESTINATION_FILE_PATH}" ]];
+	printf "⏬ Starting to download.\n";
+	__execute_command "curl -sLo ${DESTINATION_FILE} ${DOWNLOAD_FILE_URL}";
+	if [[ -f "${DESTINATION_FILE}" ]];
 	then
 		true;
 	else
@@ -141,6 +73,64 @@ function __verify_downloaded_file() {
 			return 1;
 		fi;
 	fi;
+}
+
+function __unzip_and_strip() {
+	local ARCHIVE=${1};
+	local DESTINATION_DIR=${2:-};
+	local TEMP_DIR=$(mktemp -dt toolsman_zip_XXXXXX);
+	unzip -qq ${ARCHIVE} -d ${TEMP_DIR};
+	local SOURCE_DIR=$(dirname $(find ${TEMP_DIR} -type f -print -quit));
+	cp -rpf ${SOURCE_DIR}/* ${DESTINATION_DIR}/.;
+}
+
+function __extract_deb_file() {
+	local ARCHIVE=${1};
+	local DESTINATION_DIR=${2:-};
+	local TEMP_DIR=$(mktemp -dt toolsman_deb_XXXXXX);
+	ar x ${ARCHIVE} data.tar.xz --output="${TEMP_DIR}";
+	tar -xf ${TEMP_DIR}/data.tar.xz -C "${TEMP_DIR}";
+	rm -f ${TEMP_DIR}/data.tar.xz;
+	local SOURCE_DIR=$(find ${TEMP_DIR} -type d -name $(basename "${DESTINATION_DIR}") | grep "${DESTINATION_DIR}");
+	cp -rpf "${SOURCE_DIR}"/* "${DESTINATION_DIR}"/.;
+}
+
+function __do_upgrade() {
+	local DOWNLOAD_DIR=$(dirname ${1});
+	local DOWNLOAD_FILE=$(basename ${1});
+	local DOWNLOAD_FILE_EXT="${DOWNLOAD_FILE##*.}";
+	local DESTINATION_DIR=${2};
+	printf "⬆️ Starting to upgrade.\n";
+	if [[ ! -f "${DOWNLOAD_DIR}/${DOWNLOAD_FILE}" ]];
+	then
+		false;
+	else
+		case "$DOWNLOAD_FILE_EXT" in
+		gz | tgz | xz )
+			tar xf "${DOWNLOAD_DIR}/${DOWNLOAD_FILE}" --directory "${DESTINATION_DIR}"/ --strip-components=$(tar tf "${DOWNLOAD_DIR}/${DOWNLOAD_FILE}" | grep "\/$" | sort | head -n1 | grep -o "\/" | wc -l);
+			;;
+		zip)
+			__unzip_and_strip "${DOWNLOAD_DIR}/${DOWNLOAD_FILE}" "${DESTINATION_DIR}"/;
+			;;
+		deb)
+			__extract_deb_file "${DOWNLOAD_DIR}/${DOWNLOAD_FILE}" "${DESTINATION_DIR}";
+			;;
+		*)
+			rm -f ${DESTINATION_DIR}/${DOWNLOAD_FILE};
+			mv ${DOWNLOAD_DIR}/${DOWNLOAD_FILE} ${DESTINATION_DIR}/${DOWNLOAD_FILE};
+			chmod u+x ${DESTINATION_DIR}/${DOWNLOAD_FILE};
+			;;
+		esac;
+		true;
+	fi;
+}
+
+function __split_repo_line() {
+	IFS=';' read -r -a REPO_LINE_ARRAY <<< "${@}";
+}
+
+function __read_repo_file() {
+	readarray -t REPO_LINES < "${@}";
 }
 
 function main() {
@@ -201,16 +191,18 @@ function main() {
 			continue;
 		fi;		
 
+		DOWNLOAD_FILE=$(basename ${DOWNLOAD_FILE_URL} | sed "s|[-_.]x86[-_.]64||Ig;s|[-_.]\${OperatingSystem}64||Ig;s|[-_.]\${OperatingSystem}||Ig;s|[-_.]\${ProcessorArchitecture}||Ig;s|[-_.]\${AvailableVersion}||Ig;s|[-_.]v\${AvailableVersion}||Ig;s|\${AvailableVersion}||Ig");
 		#Hack for Chrome/Edge where available version is followed by a dash and number. This version number is necessary in the download file URL only.
 		DOWNLOAD_FILE_URL=$(echo "${DOWNLOAD_FILE_URL}" | sed "s|\${MajorVersionBit}|${INSTALLED_VERSION_MAJOR_BIT}|Ig;s|\${AvailableVersion}|${AVAILABLE_VERSION}|Ig;s|\${OperatingSystem}|${OS}|Ig;s|\${ProcessorArchitecture}|${ARCH}|Ig");
 		VERIFY_DOWNLOADED_FILE_COMMAND=$(echo "${VERIFY_DOWNLOADED_FILE_COMMAND}" | sed "s|\${MajorVersionBit}|${INSTALLED_VERSION_MAJOR_BIT}|Ig;s|\${DestinationDir}|${DESTINATION_DIRECTORY}|Ig;s|\${AvailableVersion}|${AVAILABLE_VERSION}|Ig;s|\${OperatingSystem}|${OS}|Ig;s|\${ProcessorArchitecture}|${ARCH}|Ig");
-		local DESTINATION_FILE=$(basename ${DOWNLOAD_FILE_URL} | sed "s|\${AvailableVersion}|${AVAILABLE_VERSION}|Ig;s|\${OperatingSystem}|${OS}|Ig;s|\${ProcessorArchitecture}|${ARCH}|Ig");		
+
 		#Removing dash and number from available version as it is no more necessary.
 		local AVAILABLE_VERSION=$(echo ${AVAILABLE_VERSION/-*/});
 
 		if [[ "${INSTALLED_VERSION}" == "${AVAILABLE_VERSION}" ]];
 		then
-			__display_last_message "✅ No updates available. 🏁 Version ${INSTALLED_VERSION} is already up-to-date.  ";
+			printf "✅ No updates available.\n"
+			__display_last_message "🏁 System up-to-date at ${INSTALLED_VERSION} version. ";
 			continue;
 		fi;
 
@@ -218,26 +210,28 @@ function main() {
 		then
 			printf "📌 Installed version: ${INSTALLED_VERSION}\n☁️  Available version: ${AVAILABLE_VERSION}\n";
 
-			__download_file "${DESTINATION_DIRECTORY}/${DESTINATION_FILE}" "${DOWNLOAD_FILE_URL}";
+			local TEMP_DOWNLOAD_FILE="$(mktemp -dt toolsman_download_XXXXXX)/${DOWNLOAD_FILE}";
+			
+			__download_file "${TEMP_DOWNLOAD_FILE}" "${DOWNLOAD_FILE_URL}";
 			if [[ "$?" -ne 0 ]];
 			then
 				__display_last_message "⛔ Couldn't download ${APP_NAME} update of ${AVAILABLE_VERSION} version. ";
 				continue;
 			fi;
-			
-			__verify_downloaded_file "${DESTINATION_DIRECTORY}/${DESTINATION_FILE}" "${VERIFY_DOWNLOADED_FILE_COMMAND}";
+
+			__verify_downloaded_file "${TEMP_DOWNLOAD_FILE}" "$(echo ${VERIFY_DOWNLOADED_FILE_COMMAND} | sed "s|\${DestinationFile}|${TEMP_DOWNLOAD_FILE}|Ig")";
 			if [[ "$?" -ne 0 ]];
 			then
 				__display_last_message "⚠️  Downloaded file verification failed.";
 				continue;
 			fi;
 
-			__extract_update_file "${DESTINATION_DIRECTORY}/${DESTINATION_FILE}" "${AVAILABLE_VERSION}";
+			__do_upgrade "${TEMP_DOWNLOAD_FILE}" "${DESTINATION_DIRECTORY}";
 			if [[ "$(__execute_command ${INSTALLED_VERSION_COMMAND})" != "${AVAILABLE_VERSION}" ]];
 			then
 				__display_last_message "⚠️  Update done. However, there is mismatch in versions.";
 				continue;
-			fi;			
+			fi;
 
 			__display_last_message "💯 Updated. ";
 		fi;
