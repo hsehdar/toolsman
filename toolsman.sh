@@ -100,7 +100,7 @@ function __do_upgrade() {
 	local DOWNLOAD_FILE=$(basename ${1});
 	local DOWNLOAD_FILE_EXT="${DOWNLOAD_FILE##*.}";
 	local DESTINATION_DIR=${2};
-	printf "⬆️ Starting to upgrade.\n";
+	printf "⬆️  Starting to upgrade.\n";
 	if [[ ! -f "${DOWNLOAD_DIR}/${DOWNLOAD_FILE}" ]];
 	then
 		false;
@@ -155,7 +155,7 @@ function main() {
 
 		if [[ ${REPO_LINE:0:1} = \# ]];
 		then
-			__display_last_message "⚠️  \"${APP_NAME#"#"}\" is not to be updated as it is commented.";
+			__display_last_message "⚠️  \"${APP_NAME#"#"}\" is not to be upgraded as it is commented.";
 			continue;
 		fi;
 		
@@ -178,9 +178,9 @@ function main() {
 
 		if [ -z "${DOWNLOAD_FILE_URL}" ];
 		then
-			printf "📌 Installed version: ${INSTALLED_VERSION}\n⏬ Checking for new version and self updating.\n";		
+			printf "📌 Installed version: ${INSTALLED_VERSION}\n⏬ Checking for updates and self upgrading.\n";		
 			SELF_UPDATE_OUTPUT=$(__execute_command "${AVAILABLE_VERSION_COMMAND}");
-			__display_last_message "✅ Self updated and the ouput is \"${SELF_UPDATE_OUTPUT}\". ";
+			__display_last_message "✅ Self upgraded and the ouput is \"${SELF_UPDATE_OUTPUT}\". ";
 			continue;
 		fi;
 	
@@ -191,7 +191,7 @@ function main() {
 			continue;
 		fi;		
 
-		DOWNLOAD_FILE=$(basename ${DOWNLOAD_FILE_URL} | sed "s|[-_.]x86[-_.]64||Ig;s|[-_.]\${OperatingSystem}64||Ig;s|[-_.]\${OperatingSystem}||Ig;s|[-_.]\${ProcessorArchitecture}||Ig;s|[-_.]\${AvailableVersion}||Ig;s|[-_.]v\${AvailableVersion}||Ig;s|\${AvailableVersion}||Ig");
+		local DOWNLOAD_FILE=$(basename ${DOWNLOAD_FILE_URL} | sed "s|[-_.]x86[-_.]64||Ig;s|[-_.]\${OperatingSystem}64||Ig;s|[-_.]\${OperatingSystem}||Ig;s|[-_.]\${ProcessorArchitecture}||Ig;s|[-_.]\${AvailableVersion}||Ig;s|[-_.]v\${AvailableVersion}||Ig;s|\${AvailableVersion}||Ig");
 		#Hack for Chrome/Edge where available version is followed by a dash and number. This version number is necessary in the download file URL only.
 		DOWNLOAD_FILE_URL=$(echo "${DOWNLOAD_FILE_URL}" | sed "s|\${MajorVersionBit}|${INSTALLED_VERSION_MAJOR_BIT}|Ig;s|\${AvailableVersion}|${AVAILABLE_VERSION}|Ig;s|\${OperatingSystem}|${OS}|Ig;s|\${ProcessorArchitecture}|${ARCH}|Ig");
 		VERIFY_DOWNLOADED_FILE_COMMAND=$(echo "${VERIFY_DOWNLOADED_FILE_COMMAND}" | sed "s|\${MajorVersionBit}|${INSTALLED_VERSION_MAJOR_BIT}|Ig;s|\${DestinationDir}|${DESTINATION_DIRECTORY}|Ig;s|\${AvailableVersion}|${AVAILABLE_VERSION}|Ig;s|\${OperatingSystem}|${OS}|Ig;s|\${ProcessorArchitecture}|${ARCH}|Ig");
@@ -202,7 +202,7 @@ function main() {
 		if [[ "${INSTALLED_VERSION}" == "${AVAILABLE_VERSION}" ]];
 		then
 			printf "✅ No updates available.\n"
-			__display_last_message "🏁 System up-to-date at ${INSTALLED_VERSION} version. ";
+			__display_last_message "🏁 \"${APP_NAME#"#"}\" up-to-date at ${INSTALLED_VERSION} version. ";
 			continue;
 		fi;
 
@@ -215,7 +215,7 @@ function main() {
 			__download_file "${TEMP_DOWNLOAD_FILE}" "${DOWNLOAD_FILE_URL}";
 			if [[ "$?" -ne 0 ]];
 			then
-				__display_last_message "⛔ Couldn't download ${APP_NAME} update of ${AVAILABLE_VERSION} version. ";
+				__display_last_message "⛔ Couldn't download \"${APP_NAME#"#"}\" update of ${AVAILABLE_VERSION} version. ";
 				continue;
 			fi;
 
@@ -229,7 +229,7 @@ function main() {
 			__do_upgrade "${TEMP_DOWNLOAD_FILE}" "${DESTINATION_DIRECTORY}";
 			if [[ "$(__execute_command ${INSTALLED_VERSION_COMMAND})" != "${AVAILABLE_VERSION}" ]];
 			then
-				__display_last_message "⚠️  Update done. However, there is mismatch in versions.";
+				__display_last_message "⚠️  Upgrade done. However, there is a mismatch in versions.";
 				continue;
 			fi;
 
