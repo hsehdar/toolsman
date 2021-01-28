@@ -6,7 +6,7 @@ function __display_app_name_banner() {
 }
 
 function __display_last_message() {
-	local CHARACTERS_COUNT=$(printf "%-$(expr length "${@}")s");
+	local CHARACTERS_COUNT=$(printf "%-$(expr length "$(echo -e "${@}" | sed "$(echo -e "${@}" | wc -l)!d")")s");
 	echo -e "${@}\n${CHARACTERS_COUNT// /*}";
 }
 
@@ -151,11 +151,11 @@ function main() {
 		local DOWNLOAD_FILE_URL=${REPO_LINE_ARRAY[4]};
 		local VERIFY_DOWNLOADED_FILE_COMMAND=${REPO_LINE_ARRAY[5]};
 		
-		__display_app_name_banner "${APP_NAME#"#"}";
+		#__display_app_name_banner "${APP_NAME#"#"}";
 
 		if [[ ${REPO_LINE:0:1} = \# ]];
 		then
-			__display_last_message "⚠️  \"${APP_NAME#"#"}\" is not to be upgraded as it is commented.";
+			__display_last_message "🟡 \"${APP_NAME#"#"}\" is not to be upgraded as it is commented. ";
 			continue;
 		fi;
 		
@@ -165,7 +165,8 @@ function main() {
 			continue;
 		fi;
 
-		local INSTALLED_VERSION=$(__execute_command "${INSTALLED_VERSION_COMMAND}");
+		local INSTALLED_VERSION;
+		INSTALLED_VERSION=$(__execute_command "${INSTALLED_VERSION_COMMAND}");
 		if [[ "$?" -ne 0 || "$(echo ${INSTALLED_VERSION} | grep [0-9] -q && echo $?)" != "0" ]];
 		then
 			__display_last_message "⛔ Error getting installed version of ${APP_NAME}. ";
@@ -180,14 +181,17 @@ function main() {
 		then
 			printf "📌 Installed version: ${INSTALLED_VERSION}\n⏬ Checking for updates and self upgrading.\n";		
 			SELF_UPDATE_OUTPUT=$(__execute_command "${AVAILABLE_VERSION_COMMAND}");
-			__display_last_message "✅ Self upgraded and the ouput is \"${SELF_UPDATE_OUTPUT}\". ";
+			printf "✅ Self upgraded and the ouput is...\n";
+			__display_last_message "${SELF_UPDATE_OUTPUT}";
 			continue;
 		fi;
-	
-		local AVAILABLE_VERSION=$(__execute_command "$(echo ${AVAILABLE_VERSION_COMMAND} | sed "s|\${MajorVersionBit}|${INSTALLED_VERSION_MAJOR_BIT}|Ig")");
+
+		local AVAILABLE_VERSION;
+		AVAILABLE_VERSION=$(__execute_command "$(echo ${AVAILABLE_VERSION_COMMAND} | sed "s|\${MajorVersionBit}|${INSTALLED_VERSION_MAJOR_BIT}|Ig")");
 		if [[ "$?" -ne 0 ]];
 		then
-			__display_last_message "⛔ Error getting available version of ${APP_NAME} and ${INSTALLED_VERSION} version is installed. ";
+			printf "📌 Installed version: ${INSTALLED_VERSION}\n";
+			__display_last_message "⛔ Available version: Error getting it. ";
 			continue;
 		fi;		
 
@@ -201,8 +205,7 @@ function main() {
 
 		if [[ "${INSTALLED_VERSION}" == "${AVAILABLE_VERSION}" ]];
 		then
-			printf "✅ No updates available.\n"
-			__display_last_message "🏁 \"${APP_NAME#"#"}\" up-to-date at ${INSTALLED_VERSION} version. ";
+			__display_last_message "🟢 \"${APP_NAME#"#"}\" is up-to-date with ${INSTALLED_VERSION} version installed. ";
 			continue;
 		fi;
 
@@ -222,18 +225,18 @@ function main() {
 			__verify_downloaded_file "${TEMP_DOWNLOAD_FILE}" "$(echo ${VERIFY_DOWNLOADED_FILE_COMMAND} | sed "s|\${DestinationFile}|${TEMP_DOWNLOAD_FILE}|Ig")";
 			if [[ "$?" -ne 0 ]];
 			then
-				__display_last_message "⚠️  Downloaded file verification failed.";
+				__display_last_message "⛔ Downloaded file verification failed. ";
 				continue;
 			fi;
 
 			__do_upgrade "${TEMP_DOWNLOAD_FILE}" "${DESTINATION_DIRECTORY}";
 			if [[ "$(__execute_command ${INSTALLED_VERSION_COMMAND})" != "${AVAILABLE_VERSION}" ]];
 			then
-				__display_last_message "⚠️  Upgrade done. However, there is a mismatch in versions.";
+				__display_last_message "🟡 Upgrade done. However, there is a mismatch in versions. ";
 				continue;
 			fi;
 
-			__display_last_message "💯 Updated. ";
+			__display_last_message "🟢 Upgraded successfully. ";
 		fi;
 	done;
 }
