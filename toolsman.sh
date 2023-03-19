@@ -49,7 +49,7 @@ function __download_file() {
 		return 1;
 	fi;
 	printf "⏬ Starting to download.\n";
-	__execute_command "curl -sLo ${DESTINATION_FILE} ${DOWNLOAD_FILE_URL}";
+	curl -# -Lo ${DESTINATION_FILE} ${DOWNLOAD_FILE_URL};
 	if [[ -f "${DESTINATION_FILE}" ]];
 	then
 		true;
@@ -133,6 +133,31 @@ function __read_repo_file() {
 	readarray -t REPO_LINES < "${@}";
 }
 
+function __showBusyText() {
+	frames="/ | \\ -"
+	while kill -0 ${2} 2&>1 > /dev/null;
+	do
+	    for frame in $frames;
+	    do
+		printf "\r$frame ${1}";
+		sleep 0.5
+	    done
+	done
+}
+
+function __display_format() {
+	bold=$(tput bold);
+	underline=$(tput smul);
+	italic=$(tput sitm);
+	info=$(tput setaf 2);
+	error=$(tput setaf 160);
+	warn=$(tput setaf 214);
+	reset=$(tput sgr0);
+	echo "${info}INFO${reset}: This is an ${bold}info${reset} message";
+	echo "${error}ERROR${reset}: This is an ${underline}error${reset} message";
+	echo "${warn}WARN${reset}: This is a ${italic}warning${reset} message";
+}
+
 function main() {
 	local REPO_LINE;
 	for REPO_LINE in "${REPO_LINES[@]}";
@@ -151,17 +176,17 @@ function main() {
 		local DOWNLOAD_FILE_URL=${REPO_LINE_ARRAY[4]};
 		local VERIFY_DOWNLOADED_FILE_COMMAND=${REPO_LINE_ARRAY[5]};
 		
-		#__display_app_name_banner "${APP_NAME#"#"}";
+		printf "💻 App name: ${APP_NAME#"#"}\n";
 
 		if [[ ${REPO_LINE:0:1} = \# ]];
 		then
-			__display_last_message "🟡 \"${APP_NAME#"#"}\" is not to be upgraded as it is commented. ";
+			__display_last_message "🟡 Upgrade status: This app is not to be upgraded as it is commented. ";
 			continue;
 		fi;
 		
 		if [ ! -d "${DESTINATION_DIRECTORY}" ] || [ ! "$(ls -A "${DESTINATION_DIRECTORY}")" ];
 		then
-			__display_last_message "⛔ Directory \"${DESTINATION_DIRECTORY}\" does not exists or it is empty. ";
+			__display_last_message "⛔ Upgrade status: Directory \"${DESTINATION_DIRECTORY}\" does not exists or it is empty. ";
 			continue;
 		fi;
 
@@ -169,9 +194,10 @@ function main() {
 		INSTALLED_VERSION=$(__execute_command "${INSTALLED_VERSION_COMMAND}");
 		if [[ "$?" -ne 0 || "$(echo ${INSTALLED_VERSION} | grep [0-9] -q && echo $?)" != "0" ]];
 		then
-			__display_last_message "⛔ Error getting installed version of ${APP_NAME}. ";
+			__display_last_message "⛔ Installed version: Error getting it. ";
 			continue;
 		fi;
+		printf "📌 Installed version: ${INSTALLED_VERSION}\n";
 		local INSTALLED_VERSION_BY_BITS=( ${INSTALLED_VERSION//./ } );
 		local INSTALLED_VERSION_MAJOR_BIT=${INSTALLED_VERSION_BY_BITS[0]};
 		local INSTALLED_VERSION_MINOR_BIT=${INSTALLED_VERSION_BY_BITS[1]};
@@ -179,10 +205,10 @@ function main() {
 
 		if [ -z "${DOWNLOAD_FILE_URL}" ];
 		then
-			printf "📌 Installed version: ${INSTALLED_VERSION}\n⏬ Checking for updates and self upgrading.\n";		
+			printf "⏬ Checking for updates and self upgrading.\n";		
 			SELF_UPDATE_OUTPUT=$(__execute_command "${AVAILABLE_VERSION_COMMAND}");
 			printf "✅ Self upgraded and the ouput is...\n";
-			__display_last_message "${SELF_UPDATE_OUTPUT}";
+			__display_last_message "🟢 Upgrade status: ${SELF_UPDATE_OUTPUT} ";
 			continue;
 		fi;
 
@@ -190,7 +216,6 @@ function main() {
 		AVAILABLE_VERSION=$(__execute_command "$(echo ${AVAILABLE_VERSION_COMMAND} | sed "s|\${MajorVersionBit}|${INSTALLED_VERSION_MAJOR_BIT}|Ig")");
 		if [[ "$?" -ne 0 ]];
 		then
-			printf "📌 Installed version: ${INSTALLED_VERSION}\n";
 			__display_last_message "⛔ Available version: Error getting it. ";
 			continue;
 		fi;		
@@ -205,38 +230,38 @@ function main() {
 
 		if [[ "${INSTALLED_VERSION}" == "${AVAILABLE_VERSION}" ]];
 		then
-			__display_last_message "🟢 \"${APP_NAME#"#"}\" is up-to-date with ${INSTALLED_VERSION} version installed. ";
+			__display_last_message "🟢 Upgrade status: This app is up-to-date with latest version installed. ";
 			continue;
 		fi;
 
 		if [[ "${INSTALLED_VERSION}" != "${AVAILABLE_VERSION}" ]];
 		then
-			printf "📌 Installed version: ${INSTALLED_VERSION}\n☁️  Available version: ${AVAILABLE_VERSION}\n";
+			printf "☁️  Available version: ${AVAILABLE_VERSION}\n";
 
 			local TEMP_DOWNLOAD_FILE="$(mktemp -dt toolsman_download_XXXXXX)/${DOWNLOAD_FILE}";
 			
 			__download_file "${TEMP_DOWNLOAD_FILE}" "${DOWNLOAD_FILE_URL}";
 			if [[ "$?" -ne 0 ]];
 			then
-				__display_last_message "⛔ Couldn't download \"${APP_NAME#"#"}\" update of ${AVAILABLE_VERSION} version. ";
+				__display_last_message "⛔ Upgrade status: Couldn't download \"${APP_NAME#"#"}\" update of ${AVAILABLE_VERSION} version. ";
 				continue;
 			fi;
 
 			__verify_downloaded_file "${TEMP_DOWNLOAD_FILE}" "$(echo ${VERIFY_DOWNLOADED_FILE_COMMAND} | sed "s|\${DestinationFile}|${TEMP_DOWNLOAD_FILE}|Ig")";
 			if [[ "$?" -ne 0 ]];
 			then
-				__display_last_message "⛔ Downloaded file verification failed. ";
+				__display_last_message "⛔ Upgrade status: Downloaded file verification failed. ";
 				continue;
 			fi;
 
 			__do_upgrade "${TEMP_DOWNLOAD_FILE}" "${DESTINATION_DIRECTORY}";
 			if [[ "$(__execute_command ${INSTALLED_VERSION_COMMAND})" != "${AVAILABLE_VERSION}" ]];
 			then
-				__display_last_message "🟡 Upgrade done. However, there is a mismatch in versions. ";
+				__display_last_message "🟡 Upgrade status: Upgrade done. However, there is a mismatch in versions. ";
 				continue;
 			fi;
 
-			__display_last_message "🟢 Upgraded successfully. ";
+			__display_last_message "🟢 Upgrade status: Upgraded successfully. ";
 		fi;
 	done;
 }
